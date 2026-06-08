@@ -202,7 +202,9 @@
 
         window.saveItemToCloud = async (itemData, docId = null) => {
             if (!window.currentUser) return;
-            const targetId = docId ? String(docId) : Date.now().toString();
+            // Garante IDs únicos para permitir cópias em massa na mesma fração de segundo
+            const uniqueId = window.crypto && crypto.randomUUID ? crypto.randomUUID() : Date.now().toString() + Math.random().toString(36).substr(2, 5);
+            const targetId = docId ? String(docId) : uniqueId;
             const docRef = doc(db, 'artifacts', appId, 'users', window.currentUser.uid, 'items', targetId);
             await setDoc(docRef, itemData);
         };
@@ -329,6 +331,10 @@
                 <div class="flex items-center justify-between mb-4 shrink-0">
                     <h2 class="text-xl font-bold text-gray-900" id="semanaRangeDisplay">Semana Atual</h2>
                     <div class="flex gap-2">
+                        <button onclick="openHistoryModal()" class="px-3 py-1.5 text-sm font-medium bg-brand-50 border border-brand-200 rounded-lg hover:bg-brand-100 text-brand-700 shadow-sm transition-colors flex items-center gap-1" title="Histórico e Repetição">
+                            <i class="ph ph-clock-counter-clockwise text-lg"></i>
+                            <span class="hidden sm:inline">Histórico</span>
+                        </button>
                         <button onclick="changeWeek(0)" class="px-3 py-1.5 text-sm font-medium bg-white border border-gray-300 rounded-lg hover:bg-gray-50 text-gray-700 shadow-sm transition-colors">Hoje</button>
                         <div class="flex border border-gray-300 rounded-lg overflow-hidden shadow-sm">
                             <button onclick="changeWeek(-1)" class="px-3 py-1.5 bg-white hover:bg-gray-50 text-gray-600 border-r border-gray-300 transition-colors"><i class="ph ph-caret-left"></i></button>
@@ -374,6 +380,56 @@
             </div>
         </main>
     </div> 
+
+    <!-- MODAL HISTÓRICO DE SEMANAS -->
+    <div id="historyModal" class="fixed inset-0 z-50 hidden">
+        <div class="fixed inset-0 bg-gray-900/40 backdrop-blur-sm transition-opacity" onclick="closeHistoryModal()"></div>
+        <div class="fixed inset-0 z-10 overflow-y-auto">
+            <div class="flex min-h-full items-end justify-center p-4 text-center sm:items-center sm:p-0">
+                <div class="relative transform overflow-hidden rounded-xl bg-white text-left shadow-xl transition-all sm:my-8 sm:w-full sm:max-w-md modal-enter border-t-4 border-brand-500">
+                    <div class="bg-white px-4 pb-4 pt-5 sm:p-6 sm:pb-4">
+                        <div class="flex justify-between items-center mb-4 border-b border-gray-100 pb-3">
+                            <h3 class="text-lg font-semibold leading-6 text-gray-900 flex items-center gap-2">
+                                <i class="ph-fill ph-clock-counter-clockwise text-brand-500 text-xl"></i> Histórico de Semanas
+                            </h3>
+                            <button onclick="closeHistoryModal()" class="text-gray-400 hover:text-gray-600 transition-colors"><i class="ph ph-x text-xl"></i></button>
+                        </div>
+                        <p class="text-sm text-gray-500 mb-4">Selecione uma semana anterior para clonar suas tarefas e eventos para a semana que você está visualizando no momento.</p>
+                        
+                        <div id="historyWeeksList" class="space-y-2 mt-2 max-h-64 overflow-y-auto pr-1">
+                            <!-- Lista carregada via JS -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL CONFIRMAR CÓPIA DE SEMANA -->
+    <div id="copyConfirmModal" class="fixed inset-0 z-[60] hidden">
+        <div class="fixed inset-0 bg-gray-900/40 backdrop-blur-sm transition-opacity" onclick="closeCopyConfirmModal()"></div>
+        <div class="fixed inset-0 z-10 overflow-y-auto">
+            <div class="flex min-h-full items-end justify-center p-4 text-center sm:items-center sm:p-0">
+                <div class="relative transform overflow-hidden rounded-xl bg-white text-left shadow-xl transition-all sm:my-8 sm:w-full sm:max-w-sm modal-enter">
+                    <div class="bg-white px-4 pb-4 pt-5 sm:p-6 sm:pb-4">
+                        <div class="sm:flex sm:items-start">
+                            <div class="mx-auto flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-full bg-brand-100 sm:mx-0 sm:h-10 sm:w-10">
+                                <i class="ph ph-copy text-brand-600 text-xl"></i>
+                            </div>
+                            <div class="mt-3 text-center sm:ml-4 sm:mt-0 sm:text-left">
+                                <h3 class="text-base font-semibold leading-6 text-gray-900">Repetir Semana?</h3>
+                                <div class="mt-2"><p class="text-sm text-gray-500">Isso irá duplicar todas as tarefas e eventos da semana selecionada para os dias correspondentes da semana atual.</p></div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="bg-gray-50 px-4 py-3 sm:flex sm:flex-row-reverse sm:px-6 gap-2">
+                        <button type="button" id="copyWeekBtn" onclick="executeCopyWeek()" class="inline-flex w-full justify-center items-center gap-2 rounded-lg bg-brand-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-brand-500 sm:ml-3 sm:w-auto transition-colors">Confirmar</button>
+                        <button type="button" onclick="closeCopyConfirmModal()" class="mt-3 inline-flex w-full justify-center rounded-lg bg-white px-3 py-2 text-sm font-semibold text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 hover:bg-gray-50 sm:mt-0 sm:w-auto">Cancelar</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
 
     <!-- MODAL TAREFA -->
     <div id="taskModal" class="fixed inset-0 z-50 hidden">
@@ -505,13 +561,16 @@
     </div>
 
     <!-- TOASTS -->
-    <div id="toastContainer" class="fixed bottom-4 right-4 z-50 flex flex-col gap-2 max-w-sm w-full pointer-events-none"></div>
+    <div id="toastContainer" class="fixed bottom-4 right-4 z-[70] flex flex-col gap-2 max-w-sm w-full pointer-events-none"></div>
 
     <script>
         let itemToDeleteId = null;
         let reminderTimer = null;
         let isCheckingReminders = false;
         let currentWeekOffset = 0; // Controle de offset da aba da Semana
+        
+        let historyWeeksMap = {}; // Guarda o histórico processado
+        let weekToCopyStr = null; // Guarda a string do domingo alvo da cópia
 
         const NOTIFICATIONS_STORAGE_KEY = 'tarefasBaroneNotificationsEnabled';
         const REMINDER_LEAD_MINUTES = 10;
@@ -806,7 +865,7 @@
             return el;
         }
 
-        // --- ABA SEMANA (GESTÃO DE TEMPO) ---
+        // --- ABA SEMANA E HISTÓRICO (GESTÃO DE TEMPO) ---
         window.changeWeek = (offset) => {
             if(offset === 0) currentWeekOffset = 0;
             else currentWeekOffset += offset;
@@ -916,6 +975,127 @@
             document.getElementById('taskDate').value = dateStr;
         };
 
+        // --- SISTEMA DE CLONAR SEMANAS DO HISTÓRICO ---
+        window.openHistoryModal = () => {
+            const currentWeekDates = getWeekDates(currentWeekOffset);
+            const currentSundayStr = getLocalIsoDateString(currentWeekDates[0]);
+
+            historyWeeksMap = {};
+            
+            // Agrupar itens por semana (domingo a sábado)
+            window.items.forEach(item => {
+                if (!item.date) return;
+                // Parseando ao meio-dia para evitar bugs de fuso horário
+                const d = new Date(item.date + 'T12:00:00');
+                const dayOfWeek = d.getDay();
+                
+                const sunday = new Date(d);
+                sunday.setDate(d.getDate() - dayOfWeek);
+                const sundayStr = getLocalIsoDateString(sunday);
+                
+                if(!historyWeeksMap[sundayStr]) {
+                    const saturday = new Date(sunday);
+                    saturday.setDate(sunday.getDate() + 6);
+                    historyWeeksMap[sundayStr] = {
+                        sundayStr, sunday, saturday, tasks: 0, agendas: 0, items: []
+                    };
+                }
+                
+                if(item.type === 'task') historyWeeksMap[sundayStr].tasks++;
+                else historyWeeksMap[sundayStr].agendas++;
+                
+                historyWeeksMap[sundayStr].items.push(item);
+            });
+
+            const list = document.getElementById('historyWeeksList');
+            list.innerHTML = '';
+            
+            // Listar da mais recente pra mais antiga, removendo a semana que estamos vendo
+            const sortedWeeks = Object.values(historyWeeksMap).sort((a, b) => b.sunday - a.sunday);
+            const pastWeeks = sortedWeeks.filter(w => w.sundayStr !== currentSundayStr);
+
+            if (pastWeeks.length === 0) {
+                list.innerHTML = '<div class="text-center py-6 text-gray-500 text-sm">Nenhuma outra semana com registros foi encontrada no histórico.</div>';
+            } else {
+                const monthNames = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+                pastWeeks.forEach(w => {
+                    const startStr = `${w.sunday.getDate()} ${monthNames[w.sunday.getMonth()]}`;
+                    const endStr = `${w.saturday.getDate()} ${monthNames[w.saturday.getMonth()]}`;
+                    
+                    list.innerHTML += `
+                        <div class="flex items-center justify-between p-3 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors mb-2">
+                            <div>
+                                <div class="font-medium text-gray-900">${startStr} - ${endStr}</div>
+                                <div class="text-xs text-gray-500 mt-0.5"><span class="font-semibold text-brand-600">${w.tasks}</span> tarefas • <span class="font-semibold text-agenda-600">${w.agendas}</span> eventos</div>
+                            </div>
+                            <button onclick="promptCopyWeek('${w.sundayStr}')" class="px-3 py-1.5 bg-white border border-gray-300 hover:bg-gray-50 hover:text-brand-600 text-gray-700 font-medium text-sm rounded-md transition-colors flex items-center gap-1 shadow-sm">
+                                <i class="ph ph-copy"></i> Clonar
+                            </button>
+                        </div>
+                    `;
+                });
+            }
+            
+            document.getElementById('historyModal').classList.remove('hidden');
+        };
+
+        window.closeHistoryModal = () => document.getElementById('historyModal').classList.add('hidden');
+
+        window.promptCopyWeek = (sundayStr) => {
+            weekToCopyStr = sundayStr;
+            closeHistoryModal();
+            document.getElementById('copyConfirmModal').classList.remove('hidden');
+        };
+
+        window.closeCopyConfirmModal = () => {
+            weekToCopyStr = null;
+            document.getElementById('copyConfirmModal').classList.add('hidden');
+        };
+
+        window.executeCopyWeek = async () => {
+            if (!weekToCopyStr || !historyWeeksMap[weekToCopyStr]) return;
+            
+            const sourceData = historyWeeksMap[weekToCopyStr];
+            const dates = getWeekDates(currentWeekOffset);
+            const targetSunday = dates[0];
+            
+            // Calculo da diferença exata em dias entre as duas semanas
+            const sourceDateObj = new Date(weekToCopyStr + 'T12:00:00');
+            const targetDateObj = new Date(getLocalIsoDateString(targetSunday) + 'T12:00:00');
+            const diffDays = Math.round((targetDateObj - sourceDateObj) / (1000 * 60 * 60 * 24));
+            
+            const btn = document.getElementById('copyWeekBtn');
+            btn.disabled = true;
+            btn.innerHTML = '<i class="ph ph-spinner animate-spin"></i> Copiando...';
+            
+            try {
+                const promises = sourceData.items.map(item => {
+                    const itemDateObj = new Date(item.date + 'T12:00:00');
+                    itemDateObj.setDate(itemDateObj.getDate() + diffDays);
+                    
+                    const newItem = { ...item };
+                    delete newItem.id; // Remove ID para o Firebase criar um novo
+                    
+                    newItem.date = getLocalIsoDateString(itemDateObj);
+                    newItem.notified = false;
+                    newItem.reminderNotified = false;
+                    if(newItem.type === 'task') newItem.completed = false; // Desmarca tarefas clonadas
+                    
+                    // Salvar o item com ID nulo gera clones independentes no banco
+                    return window.saveItemToCloud(newItem);
+                });
+                
+                await Promise.all(promises);
+                window.showToast('Semana clonada com sucesso!', 'success');
+            } catch (error) {
+                console.error("Erro ao copiar semana", error);
+                window.showToast('Erro ao clonar a semana.', 'error');
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = 'Confirmar';
+                closeCopyConfirmModal();
+            }
+        };
 
         // --- NAVEGAÇÃO DE ABAS ---
         window.switchTab = (tab) => {
