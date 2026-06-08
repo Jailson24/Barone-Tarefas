@@ -33,10 +33,12 @@
         }
     </script>
     <style>
-        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
         ::-webkit-scrollbar-track { background: transparent; }
         ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
         ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+        .hide-scroll::-webkit-scrollbar { display: none; }
+        .hide-scroll { -ms-overflow-style: none; scrollbar-width: none; }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
         @keyframes slideInRight { from { opacity: 0; transform: translateX(100%); } to { opacity: 1; transform: translateX(0); } }
         @keyframes fadeOutRight { from { opacity: 1; transform: translateX(0); } to { opacity: 0; transform: translateX(100%); } }
@@ -106,14 +108,6 @@
             from { transform: translateX(-1.5%) translateY(-1%); }
             to { transform: translateX(1.5%) translateY(1%); }
         }
-        @media (prefers-reduced-motion: reduce) {
-            *, *::before, *::after {
-                animation-duration: 0.01ms !important;
-                animation-iteration-count: 1 !important;
-                scroll-behavior: auto !important;
-                transition-duration: 0.01ms !important;
-            }
-        }
     </style>
 
     <!-- Firebase SDKs -->
@@ -122,7 +116,6 @@
         import { getAuth, signInWithCustomToken, signInAnonymously, onAuthStateChanged, signInWithPopup, GoogleAuthProvider, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, collection, onSnapshot, doc, setDoc, deleteDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-        // Inicialização Segura Firebase
         const firebaseConfig = {
             apiKey: "AIzaSyDmTndrdsYDV4-0gONrXSuYPQdFDsl7k6E",
             authDomain: "barone-tarefas.firebaseapp.com",
@@ -137,39 +130,37 @@
         const db = getFirestore(app);
         const provider = new GoogleAuthProvider();
         
-        // ID do App e Estado Global
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'tarefas-barone';
         window.currentUser = null;
-        window.items = []; // Estado local espelhado do banco
+        window.items = []; 
         let unsubscribeSnapshot = null;
 
-        // Controle de UI (Login x App)
         const loginOverlay = document.getElementById('loginOverlay');
         const mainApp = document.getElementById('mainApp');
         const userAvatar = document.getElementById('userAvatar');
 
-        // Autenticação: Tenta usar o token seguro do ambiente, senão habilita botão Google
         const initAuth = async () => {
             try {
                 if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-                    await signInWithCustomToken(auth, __initial_auth_token);
+                    try {
+                        await signInWithCustomToken(auth, __initial_auth_token);
+                    } catch (tokenError) {
+                        console.warn("Token customizado inválido ou expirado:", tokenError);
+                        try { await signInAnonymously(auth); } catch (e) { console.warn("Login anônimo indisponível:", e); }
+                    }
                 } else {
-                    // Se não estiver num ambiente restrito, usa anônimo provisório
-                    await signInAnonymously(auth);
+                    try { await signInAnonymously(auth); } catch (e) { console.warn("Login anônimo indisponível:", e); }
                 }
             } catch (error) {
-                console.error("Erro na autenticação automática:", error);
+                console.error("Erro na autenticação:", error);
             }
         };
 
-        // Função para Login Manual com Google
         window.loginWithGoogle = async () => {
             try {
                 await signInWithPopup(auth, provider);
             } catch (error) {
-                console.error("Erro ao fazer login com Google:", error);
-                const errorCode = error?.code ? ` (${error.code})` : "";
-                window.showToast(`Erro ao fazer login com Google${errorCode}.`, "error");
+                window.showToast(`Erro ao fazer login com Google.`, "error");
             }
         };
 
@@ -178,7 +169,6 @@
             window.items = [];
         };
 
-        // Monitora o estado da Autenticação
         onAuthStateChanged(auth, (user) => {
             window.currentUser = user;
             if (user) {
@@ -193,11 +183,8 @@
             }
         });
 
-        // Carrega dados APENAS da pasta restrita do usuário logado
         function loadPrivateData() {
             if (!window.currentUser) return;
-            
-            // Caminho 100% privado: artifacts/{appId}/users/{uid}/items
             const colRef = collection(db, 'artifacts', appId, 'users', window.currentUser.uid, 'items');
             
             if (unsubscribeSnapshot) unsubscribeSnapshot();
@@ -207,22 +194,16 @@
                 snapshot.forEach(doc => {
                     window.items.push({ id: doc.id, ...doc.data() });
                 });
-                // Atualiza a tela sempre que o banco de dados mudar
                 window.renderDashboard();
             }, (error) => {
-                console.error("Erro ao carregar dados:", error);
                 window.showToast("Falha ao sincronizar com a nuvem.", "error");
             });
         }
 
-        // Funções de Escrita no Banco
         window.saveItemToCloud = async (itemData, docId = null) => {
             if (!window.currentUser) return;
-            
-            // Se docId for nulo, cria um novo ID
             const targetId = docId ? String(docId) : Date.now().toString();
             const docRef = doc(db, 'artifacts', appId, 'users', window.currentUser.uid, 'items', targetId);
-            
             await setDoc(docRef, itemData);
         };
 
@@ -232,11 +213,10 @@
             await deleteDoc(docRef);
         };
 
-        // Iniciar Auth
         initAuth();
     </script>
 </head>
-<body class="bg-gray-50 text-gray-800 font-sans min-h-screen flex flex-col">
+<body class="bg-gray-50 text-gray-800 font-sans min-h-screen flex flex-col overflow-x-hidden">
 
     <!-- TELA DE LOGIN -->
     <div id="loginOverlay" class="fixed inset-0 bg-gray-50 z-50 flex items-center justify-center">
@@ -245,20 +225,9 @@
                 <i class="ph-fill ph-check-circle text-4xl"></i>
             </div>
             <h1 class="text-2xl font-bold text-gray-900 mb-2">Tarefas Barone</h1>
-            <p class="text-gray-500 text-sm mb-8">Faça login para gerenciar suas tarefas e compromissos de forma segura e privada.</p>
-            
+            <p class="text-gray-500 text-sm mb-8">Faça login para gerenciar suas tarefas e compromissos de forma segura.</p>
             <button onclick="loginWithGoogle()" class="w-full bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 py-2.5 px-4 rounded-xl font-medium transition-colors flex items-center justify-center gap-2 shadow-sm">
-                <svg class="w-5 h-5" viewBox="0 0 24 24">
-                    <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
-                    <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
-                    <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
-                    <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
-                </svg>
                 Continuar com Google
-            </button>
-            <button id="installAppBtn" type="button" class="hidden mt-3 w-full bg-brand-600 hover:bg-brand-700 text-white py-2.5 px-4 rounded-xl font-medium transition-colors items-center justify-center gap-2 shadow-sm">
-                <i class="ph ph-download-simple text-lg"></i>
-                Instalar app
             </button>
         </div>
     </div>
@@ -282,11 +251,7 @@
                         <i class="ph ph-calendar-plus text-lg"></i>
                         <span class="hidden sm:inline">Nova Agenda</span>
                     </button>
-                    <button id="installAppHeaderBtn" type="button" class="hidden bg-gray-100 hover:bg-gray-200 text-gray-700 px-3 py-2 rounded-lg font-medium transition-colors items-center gap-2 shadow-sm text-sm" title="Instalar app">
-                        <i class="ph ph-download-simple text-lg"></i>
-                        <span class="hidden sm:inline">Instalar</span>
-                    </button>
-                    <button id="notificationsBtn" type="button" onclick="enableNotifications()" class="border border-amber-200 bg-amber-50 hover:bg-amber-100 text-amber-700 px-3 py-2 rounded-lg font-medium transition-colors flex items-center gap-2 shadow-sm text-sm" title="Ativar avisos">
+                    <button id="notificationsBtn" type="button" onclick="enableNotifications()" class="border border-amber-200 bg-amber-50 hover:bg-amber-100 text-amber-700 px-3 py-2 rounded-lg font-medium transition-colors flex items-center gap-2 shadow-sm text-sm">
                         <i id="notificationsIcon" class="ph ph-bell-ringing text-lg"></i>
                         <span id="notificationsLabel" class="hidden sm:inline">Avisos</span>
                     </button>
@@ -301,23 +266,26 @@
         </header>
 
         <!-- Main Content -->
-        <main class="flex-1 max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8 w-full">
+        <main class="flex-1 max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8 w-full flex flex-col">
             
             <!-- Tabs Navigation -->
-            <div class="border-b border-gray-200 mb-6 flex justify-between items-end">
-                <nav class="-mb-px flex space-x-8">
+            <div class="border-b border-gray-200 mb-6 flex justify-between items-end shrink-0">
+                <nav class="-mb-px flex space-x-6 sm:space-x-8 overflow-x-auto hide-scroll">
                     <button id="tab-resumo" onclick="switchTab('resumo')" class="border-brand-600 text-brand-600 whitespace-nowrap border-b-2 py-4 px-1 text-sm font-medium transition-colors">
                         <i class="ph ph-layout align-middle mr-1 text-lg"></i> Resumo
                     </button>
+                    <button id="tab-semana" onclick="switchTab('semana')" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 whitespace-nowrap border-b-2 py-4 px-1 text-sm font-medium transition-colors">
+                        <i class="ph ph-kanban align-middle mr-1 text-lg"></i> Semana
+                    </button>
                     <button id="tab-agenda" onclick="switchTab('calendario')" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 whitespace-nowrap border-b-2 py-4 px-1 text-sm font-medium transition-colors">
-                        <i class="ph ph-calendar-blank align-middle mr-1 text-lg"></i> Calendário Completo
+                        <i class="ph ph-calendar-blank align-middle mr-1 text-lg"></i> Mês Completo
                     </button>
                 </nav>
                 <div class="text-sm text-gray-500 font-medium pb-4 hidden sm:block" id="currentDateDisplay"></div>
             </div>
 
             <!-- RESUMO VIEW -->
-            <div id="resumoView" class="grid grid-cols-1 lg:grid-cols-2 gap-8 lg:gap-12">
+            <div id="resumoView" class="grid grid-cols-1 lg:grid-cols-2 gap-8 lg:gap-12 fade-in">
                 <!-- COLUNA: TAREFAS -->
                 <div>
                     <div class="flex items-center gap-2 mb-6 border-b border-gray-100 pb-2">
@@ -355,8 +323,28 @@
                 </div>
             </div>
 
-            <!-- CALENDÁRIO VIEW -->
-            <div id="calendarioView" class="hidden flex flex-col md:flex-row gap-6 items-start">
+            <!-- SEMANA VIEW (Gestão de Tempo) -->
+            <div id="semanaView" class="hidden flex-1 flex flex-col fade-in relative">
+                <!-- Controle da Semana -->
+                <div class="flex items-center justify-between mb-4 shrink-0">
+                    <h2 class="text-xl font-bold text-gray-900" id="semanaRangeDisplay">Semana Atual</h2>
+                    <div class="flex gap-2">
+                        <button onclick="changeWeek(0)" class="px-3 py-1.5 text-sm font-medium bg-white border border-gray-300 rounded-lg hover:bg-gray-50 text-gray-700 shadow-sm transition-colors">Hoje</button>
+                        <div class="flex border border-gray-300 rounded-lg overflow-hidden shadow-sm">
+                            <button onclick="changeWeek(-1)" class="px-3 py-1.5 bg-white hover:bg-gray-50 text-gray-600 border-r border-gray-300 transition-colors"><i class="ph ph-caret-left"></i></button>
+                            <button onclick="changeWeek(1)" class="px-3 py-1.5 bg-white hover:bg-gray-50 text-gray-600 transition-colors"><i class="ph ph-caret-right"></i></button>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Área Arrastável dos Dias -->
+                <div id="weekScrollContainer" class="flex overflow-x-auto snap-x snap-mandatory hide-scroll gap-4 pb-6 flex-1 items-stretch -mx-4 px-4 sm:mx-0 sm:px-0">
+                    <!-- Colunas dos dias serão inseridas aqui dinamicamente -->
+                </div>
+            </div>
+
+            <!-- CALENDÁRIO MENSAL VIEW -->
+            <div id="calendarioView" class="hidden flex-col md:flex-row gap-6 items-start fade-in">
                 <div class="w-full md:w-1/3 bg-white p-5 rounded-2xl border border-gray-200 shadow-sm sticky top-24">
                     <div class="flex justify-between items-center mb-4">
                         <button onclick="changeMonth(-1)" class="p-2 hover:bg-gray-100 rounded-lg transition-colors text-gray-600"><i class="ph ph-caret-left text-lg"></i></button>
@@ -367,10 +355,6 @@
                         <div>Dom</div><div>Seg</div><div>Ter</div><div>Qua</div><div>Qui</div><div>Sex</div><div>Sáb</div>
                     </div>
                     <div id="calendarGrid" class="grid grid-cols-7 gap-1 text-center text-sm"></div>
-                    <div class="mt-6 flex justify-center gap-4 text-xs text-gray-500">
-                        <div class="flex items-center gap-1"><div class="w-2 h-2 rounded-full bg-brand-500"></div> Tarefa</div>
-                        <div class="flex items-center gap-1"><div class="w-2 h-2 rounded-full bg-agenda-500"></div> Agenda</div>
-                    </div>
                 </div>
 
                 <div class="w-full md:w-2/3">
@@ -389,56 +373,7 @@
                 </div>
             </div>
         </main>
-    </div> <!-- Fim Main App -->
-
-    <script>
-        let deferredInstallPrompt = null;
-        const installButtons = [];
-
-        function setInstallButtonsVisible(isVisible) {
-            installButtons.forEach((button) => {
-                button.classList.toggle('hidden', !isVisible);
-                button.classList.toggle('flex', isVisible);
-            });
-        }
-
-        async function installApp() {
-            if (!deferredInstallPrompt) return;
-
-            deferredInstallPrompt.prompt();
-            const choice = await deferredInstallPrompt.userChoice;
-            if (choice.outcome === 'accepted') {
-                deferredInstallPrompt = null;
-                setInstallButtonsVisible(false);
-            }
-        }
-
-        window.addEventListener('DOMContentLoaded', () => {
-            installButtons.push(
-                ...document.querySelectorAll('#installAppBtn, #installAppHeaderBtn')
-            );
-            installButtons.forEach((button) => button.addEventListener('click', installApp));
-        });
-
-        window.addEventListener('beforeinstallprompt', (event) => {
-            event.preventDefault();
-            deferredInstallPrompt = event;
-            setInstallButtonsVisible(true);
-        });
-
-        window.addEventListener('appinstalled', () => {
-            deferredInstallPrompt = null;
-            setInstallButtonsVisible(false);
-        });
-
-        if ('serviceWorker' in navigator) {
-            window.addEventListener('load', () => {
-                navigator.serviceWorker.register('./service-worker.js').catch((error) => {
-                    console.error('Erro ao registrar service worker:', error);
-                });
-            });
-        }
-    </script>
+    </div> 
 
     <!-- MODAL TAREFA -->
     <div id="taskModal" class="fixed inset-0 z-50 hidden">
@@ -576,6 +511,8 @@
         let itemToDeleteId = null;
         let reminderTimer = null;
         let isCheckingReminders = false;
+        let currentWeekOffset = 0; // Controle de offset da aba da Semana
+
         const NOTIFICATIONS_STORAGE_KEY = 'tarefasBaroneNotificationsEnabled';
         const REMINDER_LEAD_MINUTES = 10;
         const REMINDER_LEAD_MS = REMINDER_LEAD_MINUTES * 60 * 1000;
@@ -584,8 +521,8 @@
         // --- UTILS ---
         function getLocalIsoDateString(date) { return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`; }
         function getTodayDateString() { return getLocalIsoDateString(new Date()); }
-        function getTomorrowDateString() { const t = new Date(); t.setDate(t.getDate() + 1); return getLocalIsoDateString(t); }
         function formatDateBR(dateString) { const p = dateString.split('-'); return p.length === 3 ? `${p[2]}/${p[1]}/${p[0]}` : dateString; }
+        
         function getItemDateTime(item) {
             if (!item?.date || !item?.time) return null;
             const [year, month, day] = item.date.split('-').map(Number);
@@ -593,11 +530,11 @@
             if ([year, month, day, hour, minute].some(Number.isNaN)) return null;
             return new Date(year, month - 1, day, hour, minute);
         }
+
         function isSameLocalDay(first, second) {
-            return first.getFullYear() === second.getFullYear()
-                && first.getMonth() === second.getMonth()
-                && first.getDate() === second.getDate();
+            return first.getFullYear() === second.getFullYear() && first.getMonth() === second.getMonth() && first.getDate() === second.getDate();
         }
+
         function getPriorityConfig(priority) {
             const configs = {
                 high: { color: 'text-red-700 bg-red-100 ring-red-600/20', label: 'Alta', icon: 'ph-warning-circle' },
@@ -608,15 +545,8 @@
         }
 
         // --- NOTIFICAÇÕES ---
-        function browserSupportsNotifications() {
-            return 'Notification' in window;
-        }
-
-        function areNotificationsEnabled() {
-            return browserSupportsNotifications()
-                && Notification.permission === 'granted'
-                && localStorage.getItem(NOTIFICATIONS_STORAGE_KEY) === 'true';
-        }
+        function browserSupportsNotifications() { return 'Notification' in window; }
+        function areNotificationsEnabled() { return browserSupportsNotifications() && Notification.permission === 'granted' && localStorage.getItem(NOTIFICATIONS_STORAGE_KEY) === 'true'; }
 
         function updateNotificationButton() {
             const button = document.getElementById('notificationsBtn');
@@ -669,10 +599,7 @@
                 return;
             }
 
-            const permission = Notification.permission === 'granted'
-                ? 'granted'
-                : await Notification.requestPermission();
-
+            const permission = Notification.permission === 'granted' ? 'granted' : await Notification.requestPermission();
             if (permission === 'granted') {
                 localStorage.setItem(NOTIFICATIONS_STORAGE_KEY, 'true');
                 updateNotificationButton();
@@ -719,15 +646,10 @@
                     ]);
                     if (registration?.showNotification) {
                         await registration.showNotification(title, options);
-                    } else {
-                        new Notification(title, options);
-                    }
-                } else {
-                    new Notification(title, options);
-                }
+                    } else { new Notification(title, options); }
+                } else { new Notification(title, options); }
                 window.showToast(`${typeLabel} ${whenText}: ${item.title}`, 'warning');
             } catch (error) {
-                console.error('Erro ao enviar notificação:', error);
                 window.showToast(`${typeLabel} ${whenText}: ${item.title}`, 'warning');
             }
         }
@@ -757,16 +679,13 @@
                         await window.saveItemToCloud({ ...item, notified: true }, item.id);
                     }
                 }
-            } finally {
-                isCheckingReminders = false;
-            }
+            } finally { isCheckingReminders = false; }
         }
 
-        // --- RENDER LOGIC ---
+        // --- RENDERIZADORES GERAIS ---
         window.renderDashboard = () => {
             const todayStr = getTodayDateString();
             
-            // Ordenação local: Data > Hora
             const sortedItems = [...window.items].sort((a, b) => {
                 if (a.date !== b.date) return a.date.localeCompare(b.date);
                 return a.time.localeCompare(b.time);
@@ -781,9 +700,14 @@
             renderList(agendas.filter(a => a.date === todayStr), 'agendaTodayList', 'agendaTodayEmpty', 'agendaTodayBadge', createAgendaCard);
             renderList(agendas.filter(a => a.date > todayStr), 'agendaUpcomingList', 'agendaUpcomingEmpty', 'agendaUpcomingBadge', createAgendaCard, true);
 
+            // Atualiza views se ativas
             if (!document.getElementById('calendarioView').classList.contains('hidden')) {
                 renderCalendar(); renderCalendarItems();
             }
+            if (!document.getElementById('semanaView').classList.contains('hidden')) {
+                renderSemanaView();
+            }
+            
             checkDueNotifications();
         };
 
@@ -801,68 +725,228 @@
             }
         }
 
-        function createTaskCard(task, showDate = false) {
+        function createTaskCard(task, showDate = false, isCompact = false) {
             const el = document.createElement('div');
             const prio = getPriorityConfig(task.priority);
             const opacity = task.completed ? 'opacity-60 bg-gray-50' : 'opacity-100 bg-white';
             const textLine = task.completed ? 'line-through text-gray-400' : 'text-gray-900';
-            let dateDisplay = showDate ? `<div class="flex items-center gap-1 text-xs text-gray-500 mt-2"><i class="ph ph-calendar-blank"></i> ${formatDateBR(task.date)}</div>` : '';
+            
+            let dateDisplay = showDate ? `<div class="flex items-center gap-1 text-[11px] text-gray-500 mt-1"><i class="ph ph-calendar-blank"></i> ${formatDateBR(task.date)}</div>` : '';
+            let priorityBadge = isCompact 
+                ? `<span class="w-2 h-2 rounded-full ${prio.color.split(' ')[0].replace('text-', 'bg-')} inline-block" title="${prio.label}"></span>`
+                : `<span class="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium ring-1 ring-inset ${prio.color}"><i class="ph ${prio.icon}"></i> ${prio.label}</span>`;
 
-            el.className = `motion-card group border border-gray-200 rounded-xl p-4 shadow-sm hover:border-brand-300 transition-all ${opacity} flex items-start gap-4`;
+            el.className = `motion-card group border border-gray-200 rounded-xl p-3 sm:p-4 shadow-sm hover:border-brand-300 transition-all ${opacity} flex items-start gap-3 relative`;
             el.innerHTML = `
-                <div class="relative flex items-start pt-1">
+                <div class="relative flex items-start pt-0.5 shrink-0">
                     <label class="cursor-pointer relative flex items-center">
                         <input type="checkbox" class="checkbox-custom peer sr-only" ${task.completed ? 'checked' : ''} onchange="toggleTask('${task.id}')">
-                        <div class="w-5 h-5 border-2 border-gray-300 rounded flex items-center justify-center transition-colors bg-white hover:border-brand-400">
-                            <svg class="w-3 h-3 text-white hidden" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" /></svg>
+                        <div class="w-4 h-4 sm:w-5 sm:h-5 border-2 border-gray-300 rounded flex items-center justify-center transition-colors bg-white hover:border-brand-400">
+                            <svg class="w-2.5 h-2.5 sm:w-3 sm:h-3 text-white hidden" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" /></svg>
                         </div>
                     </label>
                 </div>
-                <div class="flex-1 min-w-0">
-                    <div class="flex flex-wrap items-center gap-2 mb-1">
-                        <h4 class="text-sm sm:text-base font-semibold ${textLine} truncate">${task.title}</h4>
-                        <span class="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium ring-1 ring-inset ${prio.color}"><i class="ph ${prio.icon}"></i> ${prio.label}</span>
+                <div class="flex-1 min-w-0 pr-6">
+                    <div class="flex flex-wrap items-center gap-2 mb-0.5">
+                        <h4 class="text-sm font-semibold ${textLine} truncate">${task.title}</h4>
+                        ${priorityBadge}
                     </div>
-                    ${task.description ? `<p class="text-xs text-gray-500 line-clamp-1 mb-2 ${task.completed ? 'line-through' : ''}">${task.description}</p>` : ''}
-                    <div class="flex flex-wrap items-center gap-3">
-                        <div class="flex items-center gap-1 text-xs font-medium ${task.completed ? 'text-gray-400' : 'text-gray-700'}"><i class="ph-fill ph-clock"></i> ${task.time}</div>
+                    ${task.description && !isCompact ? `<p class="text-xs text-gray-500 line-clamp-1 mb-1 ${task.completed ? 'line-through' : ''}">${task.description}</p>` : ''}
+                    <div class="flex flex-wrap items-center gap-2 mt-1">
+                        <div class="flex items-center gap-1 text-xs font-medium ${task.completed ? 'text-gray-400' : 'text-brand-600 bg-brand-50 px-1.5 py-0.5 rounded'}"><i class="ph-fill ph-clock"></i> ${task.time}</div>
                         ${dateDisplay}
                     </div>
                 </div>
-                <div class="flex flex-col gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <button onclick="editTask('${task.id}')" class="p-1.5 text-gray-400 hover:text-brand-600 hover:bg-brand-50 rounded transition-colors"><i class="ph ph-pencil-simple"></i></button>
-                    <button onclick="promptDelete('${task.id}')" class="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"><i class="ph ph-trash"></i></button>
+                <div class="absolute right-2 top-2 flex flex-col gap-1 opacity-0 md:group-hover:opacity-100 transition-opacity">
+                    <button onclick="editTask('${task.id}')" class="p-1 text-gray-400 hover:text-brand-600 bg-white hover:bg-brand-50 rounded transition-colors shadow-sm"><i class="ph ph-pencil-simple"></i></button>
+                    <button onclick="promptDelete('${task.id}')" class="p-1 text-gray-400 hover:text-red-600 bg-white hover:bg-red-50 rounded transition-colors shadow-sm"><i class="ph ph-trash"></i></button>
                 </div>`;
+            
+            // Controle para mobile: um clique fora da checkbox mostra as ações
+            el.onclick = (e) => {
+                if(window.innerWidth < 768 && !e.target.closest('label') && !e.target.closest('button')) {
+                    const actionDiv = el.querySelector('.absolute');
+                    actionDiv.classList.toggle('opacity-0');
+                    actionDiv.classList.toggle('opacity-100');
+                }
+            };
             return el;
         }
 
-        function createAgendaCard(agenda, showDate = false) {
+        function createAgendaCard(agenda, showDate = false, isCompact = false) {
             const el = document.createElement('div');
-            let dateDisplay = showDate ? `<div class="flex items-center gap-1 text-xs text-gray-500 mt-2"><i class="ph ph-calendar-blank"></i> ${formatDateBR(agenda.date)}</div>` : '';
-            let locDisplay = agenda.location ? `<div class="flex items-center gap-1 text-xs text-gray-600 mt-1"><i class="ph ph-map-pin"></i> ${agenda.location}</div>` : '';
+            let dateDisplay = showDate ? `<div class="flex items-center gap-1 text-[11px] text-gray-500 mt-1"><i class="ph ph-calendar-blank"></i> ${formatDateBR(agenda.date)}</div>` : '';
+            let locDisplay = agenda.location && !isCompact ? `<div class="flex items-center gap-1 text-[11px] text-gray-600 mt-1"><i class="ph ph-map-pin"></i> ${agenda.location}</div>` : '';
 
-            el.className = `motion-card group bg-white border-l-4 border-l-agenda-500 border-y border-r border-gray-200 rounded-r-xl p-4 shadow-sm hover:shadow-md transition-all flex items-start gap-3`;
+            el.className = `motion-card group bg-white border-l-4 border-l-agenda-500 border-y border-r border-gray-200 rounded-r-xl p-3 sm:p-4 shadow-sm hover:shadow-md transition-all flex items-start gap-2 relative`;
             el.innerHTML = `
-                <div class="pt-1 text-agenda-500"><i class="ph-fill ph-calendar-check text-xl"></i></div>
-                <div class="flex-1 min-w-0">
-                    <h4 class="text-sm sm:text-base font-semibold text-gray-900 truncate mb-1">${agenda.title}</h4>
-                    <div class="flex items-center gap-1 text-xs font-semibold text-agenda-700 mb-1"><i class="ph-fill ph-clock"></i> ${agenda.time}</div>
+                <div class="pt-0.5 text-agenda-500 shrink-0"><i class="ph-fill ph-calendar-check text-lg"></i></div>
+                <div class="flex-1 min-w-0 pr-6">
+                    <h4 class="text-sm font-semibold text-gray-900 truncate mb-0.5">${agenda.title}</h4>
+                    <div class="flex flex-wrap items-center gap-2 mt-1">
+                        <div class="flex items-center gap-1 text-xs font-semibold text-agenda-700 bg-agenda-50 px-1.5 py-0.5 rounded"><i class="ph-fill ph-clock"></i> ${agenda.time}</div>
+                    </div>
                     ${locDisplay}
-                    ${agenda.description ? `<p class="text-xs text-gray-500 line-clamp-1 mt-2 border-t border-gray-100 pt-2">${agenda.description}</p>` : ''}
+                    ${agenda.description && !isCompact ? `<p class="text-[11px] text-gray-500 line-clamp-1 mt-1">${agenda.description}</p>` : ''}
                     ${dateDisplay}
                 </div>
-                <div class="flex flex-col gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <button onclick="editAgenda('${agenda.id}')" class="p-1.5 text-gray-400 hover:text-agenda-600 hover:bg-agenda-50 rounded transition-colors"><i class="ph ph-pencil-simple"></i></button>
-                    <button onclick="promptDelete('${agenda.id}')" class="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"><i class="ph ph-trash"></i></button>
+                <div class="absolute right-2 top-2 flex flex-col gap-1 opacity-0 md:group-hover:opacity-100 transition-opacity">
+                    <button onclick="editAgenda('${agenda.id}')" class="p-1 text-gray-400 hover:text-agenda-600 bg-white hover:bg-agenda-50 rounded transition-colors shadow-sm"><i class="ph ph-pencil-simple"></i></button>
+                    <button onclick="promptDelete('${agenda.id}')" class="p-1 text-gray-400 hover:text-red-600 bg-white hover:bg-red-50 rounded transition-colors shadow-sm"><i class="ph ph-trash"></i></button>
                 </div>`;
+            
+            // Controle para mobile
+            el.onclick = (e) => {
+                if(window.innerWidth < 768 && !e.target.closest('button')) {
+                    const actionDiv = el.querySelector('.absolute');
+                    actionDiv.classList.toggle('opacity-0');
+                    actionDiv.classList.toggle('opacity-100');
+                }
+            };
             return el;
         }
 
-        // --- ACTIONS (Integrados com Firebase) ---
+        // --- ABA SEMANA (GESTÃO DE TEMPO) ---
+        window.changeWeek = (offset) => {
+            if(offset === 0) currentWeekOffset = 0;
+            else currentWeekOffset += offset;
+            
+            renderSemanaView();
+            if(offset === 0) setTimeout(scrollToToday, 100);
+        };
+
+        function getWeekDates(offset) {
+            const now = new Date();
+            const dayOfWeek = now.getDay(); // 0(Dom) a 6(Sab)
+            const start = new Date(now);
+            start.setDate(now.getDate() - dayOfWeek + (offset * 7));
+            
+            const dates = [];
+            for(let i=0; i<7; i++) {
+                const d = new Date(start);
+                d.setDate(start.getDate() + i);
+                dates.push(d);
+            }
+            return dates;
+        }
+
+        function renderSemanaView() {
+            const dates = getWeekDates(currentWeekOffset);
+            const container = document.getElementById('weekScrollContainer');
+            const rangeDisplay = document.getElementById('semanaRangeDisplay');
+            const todayStr = getTodayDateString();
+            
+            const monthNames = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+            const weekDays = ['Domingo', 'Segunda-feira', 'Terça-feira', 'Quarta-feira', 'Quinta-feira', 'Sexta-feira', 'Sábado'];
+            
+            // Atualiza Título
+            const startStr = `${dates[0].getDate()} ${monthNames[dates[0].getMonth()]}`;
+            const endStr = `${dates[6].getDate()} ${monthNames[dates[6].getMonth()]}`;
+            rangeDisplay.textContent = currentWeekOffset === 0 ? "Esta Semana" : `${startStr} a ${endStr}`;
+            
+            container.innerHTML = '';
+            
+            dates.forEach((dateObj, index) => {
+                const dateStr = getLocalIsoDateString(dateObj);
+                const isToday = dateStr === todayStr;
+                
+                // Filtra e ordena itens do dia
+                let dayItems = window.items.filter(i => i.date === dateStr);
+                dayItems.sort((a, b) => a.time.localeCompare(b.time));
+
+                // Construção visual da Coluna
+                const col = document.createElement('div');
+                col.id = isToday ? 'col-today' : `col-day-${index}`;
+                // Snap central e largura amigável para swipe em mobile
+                col.className = `shrink-0 snap-center flex flex-col rounded-2xl border transition-all h-[calc(100vh-280px)] min-h-[400px] 
+                    w-[85vw] sm:w-[320px] 
+                    ${isToday ? 'border-brand-500 shadow-md bg-brand-50/30' : 'border-gray-200 bg-white/70 shadow-sm'}`;
+
+                // Header do Dia
+                const headerClass = isToday ? 'bg-brand-500 text-white border-b-brand-600' : 'bg-gray-100 text-gray-700 border-b-gray-200';
+                col.innerHTML = `
+                    <div class="${headerClass} px-4 py-3 rounded-t-2xl border-b flex justify-between items-center shrink-0">
+                        <div>
+                            <div class="text-[11px] font-bold uppercase tracking-wider opacity-80">${weekDays[index]}</div>
+                            <div class="text-xl font-bold flex items-baseline gap-1">
+                                ${dateObj.getDate()} <span class="text-sm font-medium opacity-90">${monthNames[dateObj.getMonth()]}</span>
+                            </div>
+                        </div>
+                        <button onclick="openTaskModalWithDate('${dateStr}')" class="w-8 h-8 rounded-full bg-white/20 hover:bg-white/30 flex items-center justify-center transition-colors shadow-sm" title="Nova Tarefa neste dia">
+                            <i class="ph ph-plus ${isToday ? 'text-white' : 'text-gray-700'} text-lg"></i>
+                        </button>
+                    </div>
+                    <div class="flex-1 overflow-y-auto p-3 space-y-3 relative custom-scrollbar">
+                        ${dayItems.length === 0 ? `
+                            <div class="absolute inset-0 flex flex-col items-center justify-center text-center p-4 opacity-60">
+                                <i class="ph-fill ph-coffee text-4xl text-gray-300 mb-2"></i>
+                                <p class="text-sm text-gray-500 font-medium">Dia livre</p>
+                            </div>
+                        ` : ''}
+                    </div>
+                `;
+
+                const itemsContainer = col.querySelector('div.flex-1');
+                
+                dayItems.forEach(item => {
+                    const card = item.type === 'task' 
+                        ? createTaskCard(item, false, true) 
+                        : createAgendaCard(item, false, true);
+                    itemsContainer.appendChild(card);
+                });
+
+                container.appendChild(col);
+            });
+        }
+
+        function scrollToToday() {
+            const todayCol = document.getElementById('col-today');
+            if(todayCol) {
+                // Scroll container horizontalmente para centrar
+                todayCol.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
+            } else if (currentWeekOffset === 0) {
+                // Fallback de segurança
+                const container = document.getElementById('weekScrollContainer');
+                if(container) container.scrollLeft = container.scrollWidth / 2;
+            }
+        }
+
+        window.openTaskModalWithDate = (dateStr) => {
+            openTaskModal();
+            document.getElementById('taskDate').value = dateStr;
+        };
+
+
+        // --- NAVEGAÇÃO DE ABAS ---
+        window.switchTab = (tab) => {
+            document.getElementById('resumoView').classList.toggle('hidden', tab !== 'resumo');
+            document.getElementById('semanaView').classList.toggle('hidden', tab !== 'semana');
+            document.getElementById('calendarioView').classList.toggle('hidden', tab !== 'calendario');
+
+            const btnResumo = document.getElementById('tab-resumo');
+            const btnSemana = document.getElementById('tab-semana');
+            const btnAgenda = document.getElementById('tab-agenda');
+
+            const activeClass = 'border-brand-600 text-brand-600 whitespace-nowrap border-b-2 py-4 px-1 text-sm font-medium transition-colors';
+            const inactiveClass = 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 whitespace-nowrap border-b-2 py-4 px-1 text-sm font-medium transition-colors';
+
+            btnResumo.className = tab === 'resumo' ? activeClass : inactiveClass;
+            btnSemana.className = tab === 'semana' ? activeClass : inactiveClass;
+            btnAgenda.className = tab === 'calendario' ? activeClass : inactiveClass;
+
+            if (tab === 'semana') {
+                renderSemanaView();
+                setTimeout(scrollToToday, 50); // Dá um tempo pro DOM atualizar antes de rolar
+            }
+            if (tab === 'calendario') {
+                renderCalendar(); renderCalendarItems();
+            }
+        };
+
+        // --- ACTIONS CRUDS ---
         window.toggleTask = async (id) => {
             const item = window.items.find(i => i.id === id);
             if (item) {
-                // Atualiza na Nuvem
                 await window.saveItemToCloud({ ...item, completed: !item.completed }, id);
                 if (!item.completed) window.showToast('Tarefa concluída!', 'success');
             }
@@ -940,15 +1024,14 @@
             }
         };
 
-        // --- CONTROLES MODAIS ---
         window.openTaskModal = () => { document.getElementById('taskForm').reset(); document.getElementById('taskId').value = ''; document.getElementById('taskDate').value = getTodayDateString(); document.getElementById('taskTime').value = getRoundedTime(); document.getElementById('taskModalTitle').innerHTML = '<i class="ph-fill ph-check-square-offset text-brand-500"></i> Nova Tarefa'; document.getElementById('taskModal').classList.remove('hidden'); };
         window.closeTaskModal = () => { document.getElementById('taskModal').classList.add('hidden'); };
         window.openAgendaModal = () => { document.getElementById('agendaForm').reset(); document.getElementById('agendaId').value = ''; document.getElementById('agendaDate').value = getTodayDateString(); document.getElementById('agendaTime').value = getRoundedTime(); document.getElementById('agendaModalTitle').innerHTML = '<i class="ph-fill ph-calendar-plus text-agenda-500"></i> Novo Evento'; document.getElementById('agendaModal').classList.remove('hidden'); };
         window.closeAgendaModal = () => { document.getElementById('agendaModal').classList.add('hidden'); };
         window.closeDeleteModal = () => { document.getElementById('deleteModal').classList.add('hidden'); itemToDeleteId = null; };
+        
         function getRoundedTime() { const n = new Date(); n.setMinutes(Math.ceil(n.getMinutes() / 15) * 15); return `${String(n.getHours()).padStart(2,'0')}:${String(n.getMinutes()).padStart(2,'0')}`; }
 
-        // --- TOASTS ---
         window.showToast = (message, type = 'info') => {
             const container = document.getElementById('toastContainer');
             const toast = document.createElement('div');
@@ -965,25 +1048,9 @@
             setTimeout(() => { if (toast.parentElement) { toast.classList.replace('toast-enter', 'toast-exit'); setTimeout(() => toast.remove(), 300); } }, 4000);
         };
 
-        // --- CALENDÁRIO ---
+        // --- CALENDÁRIO MENSAL ---
         let viewDate = new Date();
         let selectedAgendaDate = getTodayDateString();
-
-        window.switchTab = (tab) => {
-            document.getElementById('resumoView').classList.toggle('hidden', tab !== 'resumo');
-            document.getElementById('calendarioView').classList.toggle('hidden', tab !== 'calendario');
-            const btnResumo = document.getElementById('tab-resumo');
-            const btnAgenda = document.getElementById('tab-agenda');
-
-            if (tab === 'resumo') {
-                btnResumo.className = 'border-brand-600 text-brand-600 whitespace-nowrap border-b-2 py-4 px-1 text-sm font-medium transition-colors';
-                btnAgenda.className = 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 whitespace-nowrap border-b-2 py-4 px-1 text-sm font-medium transition-colors';
-            } else {
-                btnAgenda.className = 'border-brand-600 text-brand-600 whitespace-nowrap border-b-2 py-4 px-1 text-sm font-medium transition-colors';
-                btnResumo.className = 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 whitespace-nowrap border-b-2 py-4 px-1 text-sm font-medium transition-colors';
-                renderCalendar(); renderCalendarItems();
-            }
-        };
 
         window.changeMonth = (offset) => { viewDate.setMonth(viewDate.getMonth() + offset); renderCalendar(); };
         window.selectAgendaDate = (dateStr) => { selectedAgendaDate = dateStr; renderCalendar(); renderCalendarItems(); };
@@ -1002,7 +1069,6 @@
 
             for (let day = 1; day <= daysInMonth; day++) {
                 const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-                
                 const hasTask = window.items.some(i => i.date === dateStr && i.type === 'task');
                 const hasAgenda = window.items.some(i => i.date === dateStr && i.type === 'agenda');
                 
@@ -1031,7 +1097,9 @@
             const empty = document.getElementById('calEmptyState');
             document.getElementById('calSelectedDateDisplay').textContent = formatDateBR(selectedAgendaDate);
             
-            const dayItems = window.items.filter(i => i.date === selectedAgendaDate);
+            let dayItems = window.items.filter(i => i.date === selectedAgendaDate);
+            dayItems.sort((a, b) => a.time.localeCompare(b.time)); // ordena por horário no mês
+            
             list.innerHTML = '';
             if (dayItems.length === 0) {
                 list.classList.add('hidden'); empty.classList.remove('hidden');
