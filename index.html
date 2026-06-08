@@ -4,6 +4,14 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Tarefas Barone</title>
+    <meta name="theme-color" content="#2563eb">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-title" content="Tarefas Barone">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <link rel="manifest" href="./manifest.webmanifest">
+    <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png">
+    <link rel="apple-touch-icon" href="./icons/icon-192.png">
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Phosphor Icons -->
@@ -179,6 +187,10 @@
                 </svg>
                 Continuar com Google
             </button>
+            <button id="installAppBtn" type="button" class="hidden mt-3 w-full bg-brand-600 hover:bg-brand-700 text-white py-2.5 px-4 rounded-xl font-medium transition-colors items-center justify-center gap-2 shadow-sm">
+                <i class="ph ph-download-simple text-lg"></i>
+                Instalar app
+            </button>
         </div>
     </div>
 
@@ -200,6 +212,10 @@
                     <button onclick="openAgendaModal()" class="bg-agenda-600 hover:bg-agenda-700 text-white px-3 py-2 rounded-lg font-medium transition-colors flex items-center gap-2 shadow-sm text-sm">
                         <i class="ph ph-calendar-plus text-lg"></i>
                         <span class="hidden sm:inline">Nova Agenda</span>
+                    </button>
+                    <button id="installAppHeaderBtn" type="button" class="hidden bg-gray-100 hover:bg-gray-200 text-gray-700 px-3 py-2 rounded-lg font-medium transition-colors items-center gap-2 shadow-sm text-sm" title="Instalar app">
+                        <i class="ph ph-download-simple text-lg"></i>
+                        <span class="hidden sm:inline">Instalar</span>
                     </button>
                     
                     <div class="h-8 w-px bg-gray-200 mx-1"></div>
@@ -301,6 +317,55 @@
             </div>
         </main>
     </div> <!-- Fim Main App -->
+
+    <script>
+        let deferredInstallPrompt = null;
+        const installButtons = [];
+
+        function setInstallButtonsVisible(isVisible) {
+            installButtons.forEach((button) => {
+                button.classList.toggle('hidden', !isVisible);
+                button.classList.toggle('flex', isVisible);
+            });
+        }
+
+        async function installApp() {
+            if (!deferredInstallPrompt) return;
+
+            deferredInstallPrompt.prompt();
+            const choice = await deferredInstallPrompt.userChoice;
+            if (choice.outcome === 'accepted') {
+                deferredInstallPrompt = null;
+                setInstallButtonsVisible(false);
+            }
+        }
+
+        window.addEventListener('DOMContentLoaded', () => {
+            installButtons.push(
+                ...document.querySelectorAll('#installAppBtn, #installAppHeaderBtn')
+            );
+            installButtons.forEach((button) => button.addEventListener('click', installApp));
+        });
+
+        window.addEventListener('beforeinstallprompt', (event) => {
+            event.preventDefault();
+            deferredInstallPrompt = event;
+            setInstallButtonsVisible(true);
+        });
+
+        window.addEventListener('appinstalled', () => {
+            deferredInstallPrompt = null;
+            setInstallButtonsVisible(false);
+        });
+
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('./service-worker.js').catch((error) => {
+                    console.error('Erro ao registrar service worker:', error);
+                });
+            });
+        }
+    </script>
 
     <!-- MODAL TAREFA -->
     <div id="taskModal" class="fixed inset-0 z-50 hidden">
