@@ -90,7 +90,9 @@
             try {
                 await signInWithPopup(auth, provider);
             } catch (error) {
-                window.showToast("Erro ao fazer login com Google.", "error");
+                console.error("Erro ao fazer login com Google:", error);
+                const errorCode = error?.code ? ` (${error.code})` : "";
+                window.showToast(`Erro ao fazer login com Google${errorCode}.`, "error");
             }
         };
 
