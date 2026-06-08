@@ -460,6 +460,20 @@
                                     <input type="time" id="taskTime" required class="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 shadow-sm focus:border-brand-500 focus:ring-1 focus:ring-brand-500 sm:text-sm">
                                 </div>
                             </div>
+                            
+                            <!-- CHAVE DE REPETIÇÃO TAREFAS -->
+                            <div id="taskRepeatContainer" class="flex items-center justify-between bg-brand-50 p-3 rounded-lg border border-brand-100">
+                                <div>
+                                    <label class="block text-sm font-medium text-brand-900">Repetição</label>
+                                    <p class="text-xs text-brand-700">Criar cópias automáticas</p>
+                                </div>
+                                <select id="taskRepeat" class="block rounded-md border border-gray-300 py-1.5 pl-3 pr-8 shadow-sm focus:border-brand-500 focus:ring-1 focus:ring-brand-500 sm:text-sm bg-white">
+                                    <option value="none">Não repetir</option>
+                                    <option value="daily">Diariamente (30 dias)</option>
+                                    <option value="weekly">Semanalmente (12 sem.)</option>
+                                </select>
+                            </div>
+
                             <div>
                                 <label class="block text-sm font-medium leading-6 text-gray-900">Prioridade</label>
                                 <select id="taskPriority" class="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 shadow-sm focus:border-brand-500 focus:ring-1 focus:ring-brand-500 sm:text-sm bg-white">
@@ -512,6 +526,20 @@
                                     <input type="time" id="agendaTime" required class="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 shadow-sm focus:border-agenda-500 focus:ring-1 focus:ring-agenda-500 sm:text-sm">
                                 </div>
                             </div>
+                            
+                            <!-- CHAVE DE REPETIÇÃO AGENDA -->
+                            <div id="agendaRepeatContainer" class="flex items-center justify-between bg-agenda-50 p-3 rounded-lg border border-agenda-100">
+                                <div>
+                                    <label class="block text-sm font-medium text-agenda-900">Repetição</label>
+                                    <p class="text-xs text-agenda-700">Criar cópias automáticas</p>
+                                </div>
+                                <select id="agendaRepeat" class="block rounded-md border border-gray-300 py-1.5 pl-3 pr-8 shadow-sm focus:border-agenda-500 focus:ring-1 focus:ring-agenda-500 sm:text-sm bg-white">
+                                    <option value="none">Não repetir</option>
+                                    <option value="daily">Diariamente (30 dias)</option>
+                                    <option value="weekly">Semanalmente (12 sem.)</option>
+                                </select>
+                            </div>
+
                             <div>
                                 <label class="block text-sm font-medium leading-6 text-gray-900">Local / Link</label>
                                 <div class="relative mt-1">
@@ -1139,6 +1167,8 @@
             const time = document.getElementById('taskTime').value;
             const priority = document.getElementById('taskPriority').value;
             const description = document.getElementById('taskDesc').value.trim();
+            const repeatElem = document.getElementById('taskRepeat');
+            const repeat = repeatElem ? repeatElem.value : 'none';
 
             if (!title || !date || !time) return window.showToast('Preencha Título, Data e Hora', 'error');
 
@@ -1148,9 +1178,29 @@
                 if (existing) completed = existing.completed;
             }
 
-            await window.saveItemToCloud({ type: 'task', title, date, time, priority, description, completed, notified: false, reminderNotified: false }, docId);
-            closeTaskModal();
-            window.showToast(docId ? 'Tarefa atualizada!' : 'Tarefa criada!', 'success');
+            const baseItemData = { type: 'task', title, time, priority, description, completed, notified: false, reminderNotified: false };
+
+            if (!docId && repeat !== 'none') {
+                // Criação em lote
+                const count = repeat === 'daily' ? 30 : 12;
+                const promises = [];
+                let currentObjDate = new Date(date + 'T12:00:00');
+                
+                for (let i = 0; i < count; i++) {
+                    promises.push(window.saveItemToCloud({ ...baseItemData, date: getLocalIsoDateString(currentObjDate) }));
+                    if (repeat === 'daily') currentObjDate.setDate(currentObjDate.getDate() + 1);
+                    else currentObjDate.setDate(currentObjDate.getDate() + 7);
+                }
+                
+                await Promise.all(promises);
+                closeTaskModal();
+                window.showToast(`Criadas ${count} tarefas repetidas!`, 'success');
+            } else {
+                // Criação/Edição única
+                await window.saveItemToCloud({ ...baseItemData, date }, docId);
+                closeTaskModal();
+                window.showToast(docId ? 'Tarefa atualizada!' : 'Tarefa criada!', 'success');
+            }
         };
 
         window.saveAgendaBtn = async () => {
@@ -1160,12 +1210,34 @@
             const time = document.getElementById('agendaTime').value;
             const location = document.getElementById('agendaLocation').value.trim();
             const description = document.getElementById('agendaDesc').value.trim();
+            const repeatElem = document.getElementById('agendaRepeat');
+            const repeat = repeatElem ? repeatElem.value : 'none';
 
             if (!title || !date || !time) return window.showToast('Preencha Título, Data e Hora', 'error');
 
-            await window.saveItemToCloud({ type: 'agenda', title, date, time, location, description, notified: false, reminderNotified: false }, docId);
-            closeAgendaModal();
-            window.showToast(docId ? 'Evento atualizado!' : 'Evento agendado!', 'success');
+            const baseItemData = { type: 'agenda', title, time, location, description, notified: false, reminderNotified: false };
+
+            if (!docId && repeat !== 'none') {
+                // Criação em lote
+                const count = repeat === 'daily' ? 30 : 12;
+                const promises = [];
+                let currentObjDate = new Date(date + 'T12:00:00');
+                
+                for (let i = 0; i < count; i++) {
+                    promises.push(window.saveItemToCloud({ ...baseItemData, date: getLocalIsoDateString(currentObjDate) }));
+                    if (repeat === 'daily') currentObjDate.setDate(currentObjDate.getDate() + 1);
+                    else currentObjDate.setDate(currentObjDate.getDate() + 7);
+                }
+                
+                await Promise.all(promises);
+                closeAgendaModal();
+                window.showToast(`Criados ${count} eventos repetidos!`, 'success');
+            } else {
+                // Criação/Edição única
+                await window.saveItemToCloud({ ...baseItemData, date }, docId);
+                closeAgendaModal();
+                window.showToast(docId ? 'Evento atualizado!' : 'Evento agendado!', 'success');
+            }
         };
 
         window.editTask = (id) => {
@@ -1178,6 +1250,10 @@
             document.getElementById('taskTime').value = task.time;
             document.getElementById('taskPriority').value = task.priority || 'medium';
             document.getElementById('taskDesc').value = task.description || '';
+            
+            const repeatContainer = document.getElementById('taskRepeatContainer');
+            if (repeatContainer) repeatContainer.classList.add('hidden');
+            
             document.getElementById('taskModal').classList.remove('hidden');
         };
 
@@ -1191,6 +1267,10 @@
             document.getElementById('agendaTime').value = ag.time;
             document.getElementById('agendaLocation').value = ag.location || '';
             document.getElementById('agendaDesc').value = ag.description || '';
+            
+            const repeatContainer = document.getElementById('agendaRepeatContainer');
+            if (repeatContainer) repeatContainer.classList.add('hidden');
+            
             document.getElementById('agendaModal').classList.remove('hidden');
         };
 
@@ -1204,10 +1284,38 @@
             }
         };
 
-        window.openTaskModal = () => { document.getElementById('taskForm').reset(); document.getElementById('taskId').value = ''; document.getElementById('taskDate').value = getTodayDateString(); document.getElementById('taskTime').value = getRoundedTime(); document.getElementById('taskModalTitle').innerHTML = '<i class="ph-fill ph-check-square-offset text-brand-500"></i> Nova Tarefa'; document.getElementById('taskModal').classList.remove('hidden'); };
+        window.openTaskModal = () => { 
+            document.getElementById('taskForm').reset(); 
+            document.getElementById('taskId').value = ''; 
+            document.getElementById('taskDate').value = getTodayDateString(); 
+            document.getElementById('taskTime').value = getRoundedTime(); 
+            document.getElementById('taskModalTitle').innerHTML = '<i class="ph-fill ph-check-square-offset text-brand-500"></i> Nova Tarefa'; 
+            
+            const repeatContainer = document.getElementById('taskRepeatContainer');
+            if (repeatContainer) repeatContainer.classList.remove('hidden');
+            const repeatSelect = document.getElementById('taskRepeat');
+            if (repeatSelect) repeatSelect.value = 'none';
+
+            document.getElementById('taskModal').classList.remove('hidden'); 
+        };
         window.closeTaskModal = () => { document.getElementById('taskModal').classList.add('hidden'); };
-        window.openAgendaModal = () => { document.getElementById('agendaForm').reset(); document.getElementById('agendaId').value = ''; document.getElementById('agendaDate').value = getTodayDateString(); document.getElementById('agendaTime').value = getRoundedTime(); document.getElementById('agendaModalTitle').innerHTML = '<i class="ph-fill ph-calendar-plus text-agenda-500"></i> Novo Evento'; document.getElementById('agendaModal').classList.remove('hidden'); };
+        
+        window.openAgendaModal = () => { 
+            document.getElementById('agendaForm').reset(); 
+            document.getElementById('agendaId').value = ''; 
+            document.getElementById('agendaDate').value = getTodayDateString(); 
+            document.getElementById('agendaTime').value = getRoundedTime(); 
+            document.getElementById('agendaModalTitle').innerHTML = '<i class="ph-fill ph-calendar-plus text-agenda-500"></i> Novo Evento'; 
+            
+            const repeatContainer = document.getElementById('agendaRepeatContainer');
+            if (repeatContainer) repeatContainer.classList.remove('hidden');
+            const repeatSelect = document.getElementById('agendaRepeat');
+            if (repeatSelect) repeatSelect.value = 'none';
+
+            document.getElementById('agendaModal').classList.remove('hidden'); 
+        };
         window.closeAgendaModal = () => { document.getElementById('agendaModal').classList.add('hidden'); };
+        
         window.closeDeleteModal = () => { document.getElementById('deleteModal').classList.add('hidden'); itemToDeleteId = null; };
         
         function getRoundedTime() { const n = new Date(); n.setMinutes(Math.ceil(n.getMinutes() / 15) * 15); return `${String(n.getHours()).padStart(2,'0')}:${String(n.getMinutes()).padStart(2,'0')}`; }
