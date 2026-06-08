@@ -45,6 +45,75 @@
         .toast-exit { animation: fadeOutRight 0.3s ease-in forwards; }
         .checkbox-custom:checked + div { background-color: #2563eb; border-color: #2563eb; }
         .checkbox-custom:checked + div svg { display: block; }
+        html { scroll-behavior: smooth; }
+        body {
+            position: relative;
+            overflow-x: hidden;
+            background-color: #eef5ff;
+            background-image:
+                linear-gradient(180deg, rgba(249, 250, 251, 0.74), rgba(239, 246, 255, 0.88)),
+                url('./assets/app-background.png');
+            background-size: cover;
+            background-position: center;
+            background-attachment: fixed;
+        }
+        body::before {
+            content: "";
+            position: fixed;
+            inset: 0;
+            z-index: 0;
+            pointer-events: none;
+            background: linear-gradient(118deg, rgba(255,255,255,0.74) 0%, rgba(255,255,255,0.18) 36%, rgba(20,184,166,0.10) 68%, rgba(255,255,255,0.34) 100%);
+            opacity: 0.88;
+            animation: lightSweep 12s ease-in-out infinite alternate;
+        }
+        body > * { position: relative; z-index: 1; }
+        header {
+            background: rgba(255, 255, 255, 0.78) !important;
+            backdrop-filter: blur(18px);
+            box-shadow: 0 12px 35px rgba(15, 23, 42, 0.08);
+        }
+        #loginOverlay { background: rgba(248, 250, 252, 0.72) !important; }
+        #loginOverlay > div,
+        #calendarioView > div:first-child,
+        #calEmptyState {
+            background: rgba(255, 255, 255, 0.86) !important;
+            backdrop-filter: blur(18px);
+            box-shadow: 0 24px 70px rgba(15, 23, 42, 0.14);
+        }
+        #mainApp main { animation: fadeIn 0.45s ease-out both; }
+        .motion-card {
+            background-color: rgba(255, 255, 255, 0.9) !important;
+            backdrop-filter: blur(14px);
+            transform: translateY(0);
+            transition: transform 0.22s ease, box-shadow 0.22s ease, border-color 0.22s ease, background-color 0.22s ease;
+        }
+        .motion-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 18px 38px rgba(15, 23, 42, 0.12);
+        }
+        #notificationsBtn[data-enabled="true"] {
+            background: #ecfdf5;
+            color: #047857;
+            border-color: #a7f3d0;
+        }
+        #notificationsBtn[data-denied="true"] {
+            background: #fff7ed;
+            color: #c2410c;
+            border-color: #fed7aa;
+        }
+        @keyframes lightSweep {
+            from { transform: translateX(-1.5%) translateY(-1%); }
+            to { transform: translateX(1.5%) translateY(1%); }
+        }
+        @media (prefers-reduced-motion: reduce) {
+            *, *::before, *::after {
+                animation-duration: 0.01ms !important;
+                animation-iteration-count: 1 !important;
+                scroll-behavior: auto !important;
+                transition-duration: 0.01ms !important;
+            }
+        }
     </style>
 
     <!-- Firebase SDKs -->
@@ -216,6 +285,10 @@
                     <button id="installAppHeaderBtn" type="button" class="hidden bg-gray-100 hover:bg-gray-200 text-gray-700 px-3 py-2 rounded-lg font-medium transition-colors items-center gap-2 shadow-sm text-sm" title="Instalar app">
                         <i class="ph ph-download-simple text-lg"></i>
                         <span class="hidden sm:inline">Instalar</span>
+                    </button>
+                    <button id="notificationsBtn" type="button" onclick="enableNotifications()" class="border border-amber-200 bg-amber-50 hover:bg-amber-100 text-amber-700 px-3 py-2 rounded-lg font-medium transition-colors flex items-center gap-2 shadow-sm text-sm" title="Ativar avisos">
+                        <i id="notificationsIcon" class="ph ph-bell-ringing text-lg"></i>
+                        <span id="notificationsLabel" class="hidden sm:inline">Avisos</span>
                     </button>
                     
                     <div class="h-8 w-px bg-gray-200 mx-1"></div>
@@ -501,12 +574,30 @@
 
     <script>
         let itemToDeleteId = null;
+        let reminderTimer = null;
+        let isCheckingReminders = false;
+        const NOTIFICATIONS_STORAGE_KEY = 'tarefasBaroneNotificationsEnabled';
+        const REMINDER_LEAD_MINUTES = 10;
+        const REMINDER_LEAD_MS = REMINDER_LEAD_MINUTES * 60 * 1000;
+        const REMINDER_CHECK_MS = 30 * 1000;
 
         // --- UTILS ---
         function getLocalIsoDateString(date) { return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`; }
         function getTodayDateString() { return getLocalIsoDateString(new Date()); }
         function getTomorrowDateString() { const t = new Date(); t.setDate(t.getDate() + 1); return getLocalIsoDateString(t); }
         function formatDateBR(dateString) { const p = dateString.split('-'); return p.length === 3 ? `${p[2]}/${p[1]}/${p[0]}` : dateString; }
+        function getItemDateTime(item) {
+            if (!item?.date || !item?.time) return null;
+            const [year, month, day] = item.date.split('-').map(Number);
+            const [hour, minute] = item.time.split(':').map(Number);
+            if ([year, month, day, hour, minute].some(Number.isNaN)) return null;
+            return new Date(year, month - 1, day, hour, minute);
+        }
+        function isSameLocalDay(first, second) {
+            return first.getFullYear() === second.getFullYear()
+                && first.getMonth() === second.getMonth()
+                && first.getDate() === second.getDate();
+        }
         function getPriorityConfig(priority) {
             const configs = {
                 high: { color: 'text-red-700 bg-red-100 ring-red-600/20', label: 'Alta', icon: 'ph-warning-circle' },
@@ -514,6 +605,161 @@
                 low: { color: 'text-blue-700 bg-blue-100 ring-blue-600/20', label: 'Baixa', icon: 'ph-arrow-circle-down' }
             };
             return configs[priority] || configs.medium;
+        }
+
+        // --- NOTIFICAÇÕES ---
+        function browserSupportsNotifications() {
+            return 'Notification' in window;
+        }
+
+        function areNotificationsEnabled() {
+            return browserSupportsNotifications()
+                && Notification.permission === 'granted'
+                && localStorage.getItem(NOTIFICATIONS_STORAGE_KEY) === 'true';
+        }
+
+        function updateNotificationButton() {
+            const button = document.getElementById('notificationsBtn');
+            const label = document.getElementById('notificationsLabel');
+            const icon = document.getElementById('notificationsIcon');
+            if (!button || !label || !icon) return;
+
+            button.dataset.enabled = 'false';
+            button.dataset.denied = 'false';
+            button.disabled = false;
+            button.classList.remove('opacity-60', 'cursor-not-allowed');
+
+            if (!browserSupportsNotifications()) {
+                label.textContent = 'Sem avisos';
+                icon.className = 'ph ph-bell-slash text-lg';
+                button.title = 'Este navegador não suporta notificações';
+                button.disabled = true;
+                button.classList.add('opacity-60', 'cursor-not-allowed');
+                return;
+            }
+
+            if (Notification.permission === 'granted' && localStorage.getItem(NOTIFICATIONS_STORAGE_KEY) === 'true') {
+                label.textContent = 'Avisos ativos';
+                icon.className = 'ph ph-bell-ringing text-lg';
+                button.title = 'Avisos de tarefas e agenda ativos';
+                button.dataset.enabled = 'true';
+            } else if (Notification.permission === 'denied') {
+                label.textContent = 'Avisos bloqueados';
+                icon.className = 'ph ph-bell-slash text-lg';
+                button.title = 'Libere as notificações nas permissões do navegador';
+                button.dataset.denied = 'true';
+            } else {
+                label.textContent = 'Avisos';
+                icon.className = 'ph ph-bell text-lg';
+                button.title = 'Ativar avisos';
+            }
+        }
+
+        window.enableNotifications = async () => {
+            if (!browserSupportsNotifications()) {
+                window.showToast('Este navegador não suporta notificações.', 'warning');
+                updateNotificationButton();
+                return;
+            }
+
+            if (Notification.permission === 'denied') {
+                localStorage.setItem(NOTIFICATIONS_STORAGE_KEY, 'false');
+                updateNotificationButton();
+                window.showToast('As notificações estão bloqueadas no navegador.', 'warning');
+                return;
+            }
+
+            const permission = Notification.permission === 'granted'
+                ? 'granted'
+                : await Notification.requestPermission();
+
+            if (permission === 'granted') {
+                localStorage.setItem(NOTIFICATIONS_STORAGE_KEY, 'true');
+                updateNotificationButton();
+                startReminderChecker();
+                checkDueNotifications();
+                window.showToast('Avisos ativados para tarefas e agenda.', 'success');
+            } else {
+                localStorage.setItem(NOTIFICATIONS_STORAGE_KEY, 'false');
+                updateNotificationButton();
+                window.showToast('Permissão de notificações não concedida.', 'warning');
+            }
+        };
+
+        function startReminderChecker() {
+            if (reminderTimer) clearInterval(reminderTimer);
+            reminderTimer = setInterval(checkDueNotifications, REMINDER_CHECK_MS);
+        }
+
+        async function showReminderNotification(item, stage) {
+            const isAgenda = item.type === 'agenda';
+            const typeLabel = isAgenda ? 'Agenda' : 'Tarefa';
+            const whenText = stage === 'soon' ? `em ${REMINDER_LEAD_MINUTES} minutos` : 'agora';
+            const title = `${typeLabel}: ${item.title}`;
+            const detailParts = [
+                `${typeLabel} ${whenText}`,
+                item.time ? `Horário: ${item.time}` : '',
+                item.location ? `Local: ${item.location}` : '',
+                item.description || ''
+            ].filter(Boolean);
+            const options = {
+                body: detailParts.join(' - '),
+                icon: './icons/icon-192.png',
+                badge: './icons/icon-192.png',
+                tag: `tarefas-barone-${item.id}-${stage}`,
+                renotify: true,
+                data: { url: './', itemId: item.id }
+            };
+
+            try {
+                if ('serviceWorker' in navigator) {
+                    const registration = await Promise.race([
+                        navigator.serviceWorker.ready,
+                        new Promise((resolve) => setTimeout(() => resolve(null), 1500))
+                    ]);
+                    if (registration?.showNotification) {
+                        await registration.showNotification(title, options);
+                    } else {
+                        new Notification(title, options);
+                    }
+                } else {
+                    new Notification(title, options);
+                }
+                window.showToast(`${typeLabel} ${whenText}: ${item.title}`, 'warning');
+            } catch (error) {
+                console.error('Erro ao enviar notificação:', error);
+                window.showToast(`${typeLabel} ${whenText}: ${item.title}`, 'warning');
+            }
+        }
+
+        async function checkDueNotifications() {
+            if (isCheckingReminders || !areNotificationsEnabled() || !window.currentUser || !Array.isArray(window.items)) return;
+            isCheckingReminders = true;
+
+            try {
+                const now = new Date();
+                for (const item of window.items) {
+                    if (!item?.id || !item.date || !item.time) continue;
+                    if (item.type === 'task' && item.completed) continue;
+
+                    const dueAt = getItemDateTime(item);
+                    if (!dueAt || !isSameLocalDay(now, dueAt)) continue;
+
+                    const timeUntil = dueAt.getTime() - now.getTime();
+                    const shouldWarnSoon = !item.reminderNotified && timeUntil > 0 && timeUntil <= REMINDER_LEAD_MS;
+                    const shouldWarnNow = !item.notified && timeUntil <= 0;
+
+                    if (shouldWarnSoon) {
+                        await showReminderNotification(item, 'soon');
+                        await window.saveItemToCloud({ ...item, reminderNotified: true }, item.id);
+                    } else if (shouldWarnNow) {
+                        await showReminderNotification(item, 'now');
+                        await window.saveItemToCloud({ ...item, notified: true }, item.id);
+                    }
+                }
+            } finally {
+                isCheckingReminders = false;
+            }
         }
 
         // --- RENDER LOGIC ---
@@ -538,6 +784,7 @@
             if (!document.getElementById('calendarioView').classList.contains('hidden')) {
                 renderCalendar(); renderCalendarItems();
             }
+            checkDueNotifications();
         };
 
         function renderList(dataArray, listId, emptyId, badgeId, cardBuilderFn, showDate = false) {
@@ -561,7 +808,7 @@
             const textLine = task.completed ? 'line-through text-gray-400' : 'text-gray-900';
             let dateDisplay = showDate ? `<div class="flex items-center gap-1 text-xs text-gray-500 mt-2"><i class="ph ph-calendar-blank"></i> ${formatDateBR(task.date)}</div>` : '';
 
-            el.className = `group border border-gray-200 rounded-xl p-4 shadow-sm hover:border-brand-300 transition-all ${opacity} flex items-start gap-4`;
+            el.className = `motion-card group border border-gray-200 rounded-xl p-4 shadow-sm hover:border-brand-300 transition-all ${opacity} flex items-start gap-4`;
             el.innerHTML = `
                 <div class="relative flex items-start pt-1">
                     <label class="cursor-pointer relative flex items-center">
@@ -594,7 +841,7 @@
             let dateDisplay = showDate ? `<div class="flex items-center gap-1 text-xs text-gray-500 mt-2"><i class="ph ph-calendar-blank"></i> ${formatDateBR(agenda.date)}</div>` : '';
             let locDisplay = agenda.location ? `<div class="flex items-center gap-1 text-xs text-gray-600 mt-1"><i class="ph ph-map-pin"></i> ${agenda.location}</div>` : '';
 
-            el.className = `group bg-white border-l-4 border-l-agenda-500 border-y border-r border-gray-200 rounded-r-xl p-4 shadow-sm hover:shadow-md transition-all flex items-start gap-3`;
+            el.className = `motion-card group bg-white border-l-4 border-l-agenda-500 border-y border-r border-gray-200 rounded-r-xl p-4 shadow-sm hover:shadow-md transition-all flex items-start gap-3`;
             el.innerHTML = `
                 <div class="pt-1 text-agenda-500"><i class="ph-fill ph-calendar-check text-xl"></i></div>
                 <div class="flex-1 min-w-0">
@@ -637,7 +884,7 @@
                 if (existing) completed = existing.completed;
             }
 
-            await window.saveItemToCloud({ type: 'task', title, date, time, priority, description, completed, notified: false }, docId);
+            await window.saveItemToCloud({ type: 'task', title, date, time, priority, description, completed, notified: false, reminderNotified: false }, docId);
             closeTaskModal();
             window.showToast(docId ? 'Tarefa atualizada!' : 'Tarefa criada!', 'success');
         };
@@ -652,7 +899,7 @@
 
             if (!title || !date || !time) return window.showToast('Preencha Título, Data e Hora', 'error');
 
-            await window.saveItemToCloud({ type: 'agenda', title, date, time, location, description, notified: false }, docId);
+            await window.saveItemToCloud({ type: 'agenda', title, date, time, location, description, notified: false, reminderNotified: false }, docId);
             closeAgendaModal();
             window.showToast(docId ? 'Evento atualizado!' : 'Evento agendado!', 'success');
         };
@@ -802,6 +1049,14 @@
             const options = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
             const todayStr = new Date().toLocaleDateString('pt-BR', options);
             document.getElementById('currentDateDisplay').textContent = todayStr.charAt(0).toUpperCase() + todayStr.slice(1);
+            if (browserSupportsNotifications() && Notification.permission === 'granted' && localStorage.getItem(NOTIFICATIONS_STORAGE_KEY) !== 'false') {
+                localStorage.setItem(NOTIFICATIONS_STORAGE_KEY, 'true');
+            }
+            updateNotificationButton();
+            startReminderChecker();
+            document.addEventListener('visibilitychange', () => {
+                if (!document.hidden) checkDueNotifications();
+            });
         });
 
     </script>
